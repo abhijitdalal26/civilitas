@@ -27,6 +27,7 @@ const statsPanel = document.getElementById('stats-panel')
 const statsContent = document.getElementById('stats-content')
 const startBtn = document.getElementById('start-btn')
 const resetBtn = document.getElementById('reset-btn')
+const pauseBtn = document.getElementById('pause-btn')
 const speedControl = document.getElementById('sim-speed-control')
 const speedLabel = document.getElementById('speed-label')
 const seasonDisplay = document.getElementById('season-display')
@@ -42,17 +43,26 @@ const gCtx = graphCanvas.getContext('2d')
 const graphCanvasLarge = document.getElementById('graph-canvas-large')
 const gLargeCtx = graphCanvasLarge.getContext('2d')
 
+// Sidebar sim preview (shown when graph view is active)
+const simPreviewCanvas = document.getElementById('sim-preview-canvas')
+const simPreviewCtx = simPreviewCanvas.getContext('2d')
+const simSidebarPreview = document.getElementById('sim-sidebar-preview')
+const graphPreviewPanel = document.getElementById('graph-preview-panel')
+
 // --- STATE ---
 let width = simStage.clientWidth
 let height = simStage.clientHeight
 let animationId = null
 let isRunning = false
+let isPaused = false
 let frames = 0
 let currentYear = 0
 let targetYears = 100
 let simSpeed = 1
 let activeView = 'map'
 let graphHover = null
+let mapWidth = width
+let mapHeight = height
 const FRAMES_PER_YEAR = 240 // A year is now 4 times longer (4 seconds at 1x speed) 
 
 // Seasons
@@ -68,18 +78,32 @@ canvas.width = width
 canvas.height = height
 
 function updateMapAspect() {
-  if (simStage.clientWidth > 0 && simStage.clientHeight > 0) {
-    simContainer.style.setProperty('--map-aspect', `${simStage.clientWidth} / ${simStage.clientHeight}`)
+  if (mapWidth > 0 && mapHeight > 0) {
+    simContainer.style.setProperty('--map-aspect', `${mapWidth} / ${mapHeight}`)
   }
 }
 
+function resizeSimPreview() {
+  const pw = simSidebarPreview.clientWidth || 330
+  simPreviewCanvas.width = pw
+  simPreviewCanvas.height = Math.round(pw * Math.max(1, mapHeight) / Math.max(1, mapWidth))
+}
+
 function resizeCanvases() {
-  width = simStage.clientWidth
-  height = simStage.clientHeight
+  if (activeView === 'map') {
+    mapWidth = simStage.clientWidth
+    mapHeight = simStage.clientHeight
+    width = mapWidth
+    height = mapHeight
+  } else {
+    width = mapWidth
+    height = mapHeight
+  }
   canvas.width = width
   canvas.height = height
   graphCanvasLarge.width = graphStage.clientWidth
   graphCanvasLarge.height = graphStage.clientHeight
+  if (activeView === 'graph') resizeSimPreview()
   if (activeView === 'map') updateMapAspect()
   simulation.drawGraph()
   simulation.draw()
@@ -134,6 +158,11 @@ function setActiveView(view) {
   showMapBtn.classList.toggle('active', view === 'map')
   showGraphBtn.classList.toggle('active', view === 'graph')
   showLogBtn.classList.toggle('active', view === 'log')
+
+  // In graph view: show sim preview in sidebar, hide mini graph canvas (redundant)
+  const isGraph = view === 'graph'
+  simSidebarPreview.classList.toggle('hidden', !isGraph)
+  graphPreviewPanel.classList.toggle('hidden', isGraph)
 
   requestAnimationFrame(resizeCanvases)
 }
@@ -630,6 +659,7 @@ const simulation = {
       new Society(1, 'Alpha', '#00f0ff', soc1Config.strat, soc1Config.agg, soc1Config.spd, soc1Config.allowWomenFighters),
       new Society(2, 'Beta', '#ff0055', soc2Config.strat, soc2Config.agg, soc2Config.spd, soc2Config.allowWomenFighters)
     ]
+    logEvent('Founding combat rules are locked and inherited by descendants.', '#ffd166')
     this.entities = []
     this.foods = []
     this.particles = []
@@ -952,6 +982,12 @@ const simulation = {
       e.draw(ctx)
     })
     ctx.shadowBlur = 0
+
+    // Mirror to sidebar preview when in graph view
+    if (activeView === 'graph' && simPreviewCanvas.width > 0 && simPreviewCanvas.height > 0) {
+      simPreviewCtx.clearRect(0, 0, simPreviewCanvas.width, simPreviewCanvas.height)
+      simPreviewCtx.drawImage(canvas, 0, 0, simPreviewCanvas.width, simPreviewCanvas.height)
+    }
   },
 
   updateStats() {
@@ -981,41 +1017,44 @@ const simulation = {
       }
     }
 
-    let html = ''
-    this.societies.forEach(s => {
+    const rankedSocieties = [...this.societies].sort((a, b) => {
+      const popDiff = popMap[b.id] - popMap[a.id]
+      if (popDiff !== 0) return popDiff
+      return terrMap[b.id] - terrMap[a.id]
+    })
+
+    let html = `
+      <div class="stats-table">
+        <div class="stats-header">
+          <span>Society</span>
+          <span>Pop</span>
+          <span>Land</span>
+          <span>Fight</span>
+          <span>Civil</span>
+        </div>
+    `
+    rankedSocieties.forEach((s, index) => {
       if (popMap[s.id] > 0) {
         html += `
-          <div class="stat-row">
-            <span class="stat-label" style="color: ${s.color}">${s.name}:</span>
-            <span>Pop: ${popMap[s.id]} | Land: ${terrMap[s.id]}</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Policy:</span>
-            <span>${s.allowWomenFighters ? 'Women can fight' : 'Women stay civilian'} | Fighters: ${fighterMap[s.id]} | Civilians: ${civilianMap[s.id]}</span>
+          <div class="stats-row">
+            <span class="soc-name" style="color: ${s.color}" title="${s.name}">#${index + 1} ${s.name}</span>
+            <span>${popMap[s.id]}</span>
+            <span>${terrMap[s.id]}</span>
+            <span>${fighterMap[s.id]}</span>
+            <span>${civilianMap[s.id]}</span>
           </div>
         `
       }
     })
+    html += `</div>`
 
-    html += `
-      <div class="stat-row" style="margin-top: 10px;">
-        <span class="stat-label">Total Entities:</span>
-        <span>${this.entities.length}</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Food Particles:</span>
-        <span style="color: #00ff88;">${this.foods.length}</span>
-      </div>
-    `
-
+    html += `<div class="stats-totals">`
+    html += `<span>Total: ${this.entities.length}</span>`
+    html += `<span style="color: #00ff88;">Food: ${this.foods.length}</span>`
     if (diseasedCount > 0) {
-      html += `
-        <div class="stat-row">
-          <span class="stat-label" style="color: #9acd32; font-weight: bold;">Plague Cases:</span>
-          <span style="color: #9acd32; font-weight: bold;">${diseasedCount}</span>
-        </div>
-      `
+      html += `<span style="color: #9acd32; font-weight: bold;">Plague: ${diseasedCount}</span>`
     }
+    html += `</div>`
 
     statsContent.innerHTML = html
   }
@@ -1023,6 +1062,12 @@ const simulation = {
 
 function loop() {
   if (!isRunning) return
+
+  if (isPaused) {
+    simulation.draw()
+    animationId = requestAnimationFrame(loop)
+    return
+  }
   
   for (let s = 0; s < simSpeed; s++) {
     frames++
@@ -1048,6 +1093,8 @@ function loop() {
 
       if (currentYear >= targetYears) {
         isRunning = false
+        isPaused = false
+        pauseBtn.innerText = 'Pause'
         document.getElementById('year-display').innerText = `Simulation Finished (Year ${currentYear})`
         simulation.draw()
         simulation.updateStats()
@@ -1071,15 +1118,40 @@ speedControl.addEventListener('input', (e) => {
   speedLabel.innerText = simSpeed + 'x'
 })
 
+pauseBtn.addEventListener('click', () => {
+  if (!isRunning) return
+  isPaused = !isPaused
+  pauseBtn.innerText = isPaused ? 'Resume' : 'Pause'
+  if (isPaused) logEvent('Simulation paused for inspection.', '#ffd166')
+})
+
 showMapBtn.addEventListener('click', () => setActiveView('map'))
 showGraphBtn.addEventListener('click', () => setActiveView('graph'))
 showLogBtn.addEventListener('click', () => setActiveView('log'))
+
+graphCanvasLarge.addEventListener('mousemove', (e) => {
+  if (simulation.populationHistory.length < 2) return
+  const rect = graphCanvasLarge.getBoundingClientRect()
+  const padding = 32
+  const innerW = graphCanvasLarge.width - padding * 2
+  const x = ((e.clientX - rect.left) / rect.width) * graphCanvasLarge.width
+  const progress = Math.max(0, Math.min(1, (x - padding) / Math.max(1, innerW)))
+  graphHover = Math.round(progress * (simulation.populationHistory.length - 1))
+  simulation.drawGraph()
+})
+
+graphCanvasLarge.addEventListener('mouseleave', () => {
+  graphHover = null
+  simulation.drawGraph()
+})
 
 startBtn.addEventListener('click', () => {
   targetYears = parseInt(document.getElementById('sim-years').value) || 100
   frames = 0
   currentYear = 0
   currentSeasonIdx = 0
+  isPaused = false
+  pauseBtn.innerText = 'Pause'
   simulation.updateSeasonUI()
   document.getElementById('year-display').innerText = `Year: 0 / ${targetYears}`
 
@@ -1107,6 +1179,8 @@ startBtn.addEventListener('click', () => {
 
 resetBtn.addEventListener('click', () => {
   isRunning = false
+  isPaused = false
+  pauseBtn.innerText = 'Pause'
   cancelAnimationFrame(animationId)
   ctx.clearRect(0, 0, width, height)
   gCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height)

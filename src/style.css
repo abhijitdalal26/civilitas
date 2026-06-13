@@ -66,10 +66,7 @@ body, html {
 
 #simulation-container[data-view="graph"] #simulation-stage,
 #simulation-container[data-view="log"] #simulation-stage {
-  flex: 0 0 auto;
-  width: min(42%, 420px);
-  aspect-ratio: var(--map-aspect);
-  align-self: center;
+  display: none;
 }
 
 .stage-view {
@@ -284,6 +281,39 @@ button:active {
   background: rgba(255,255,255,0.15);
 }
 
+.control-panel {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.control-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.control-heading label {
+  margin: 0;
+}
+
+#speed-label {
+  color: #8a8d98;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.control-panel input[type="range"] {
+  margin-top: 10px;
+}
+
+.control-btn {
+  margin-top: 12px;
+  padding: 9px;
+  font-size: 0.9rem;
+}
+
 .view-switcher {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -313,18 +343,68 @@ button:active {
 }
 
 #stats-content {
-  font-size: 0.9rem;
-  line-height: 1.6;
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.stat-label {
+.stats-header {
+  display: grid;
+  grid-template-columns: 1fr repeat(4, auto);
+  gap: 0 10px;
+  padding: 4px 6px 6px;
   color: var(--text-secondary);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+  margin-bottom: 2px;
+}
+
+.stats-header span:not(:first-child) {
+  text-align: right;
+  min-width: 36px;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: 1fr repeat(4, auto);
+  gap: 0 10px;
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  align-items: center;
+}
+
+.stats-row:last-child {
+  border-bottom: none;
+}
+
+.stats-row .soc-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.stats-row span:not(:first-child) {
+  text-align: right;
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.stats-totals {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 6px 6px 2px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  flex-wrap: wrap;
 }

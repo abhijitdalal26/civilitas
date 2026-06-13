@@ -85,10 +85,13 @@
             <div id="season-display" style="font-size: 1rem; font-weight: 500; color: #ffeb3b; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 4px;">Spring</div>
           </div>
           
-          <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-            <label for="sim-speed-control" style="color: var(--text-secondary); font-size: 0.85rem;">Simulation Speed</label>
-            <input type="range" id="sim-speed-control" min="1" max="10" value="1" style="width: 100%; margin-top: 8px;">
-            <div id="speed-label" style="text-align: right; font-size: 0.8rem; color: #8a8d98; margin-top: 4px;">1x</div>
+          <div class="control-panel">
+            <div class="control-heading">
+              <label for="sim-speed-control">Simulation Speed</label>
+              <div id="speed-label">1x</div>
+            </div>
+            <input type="range" id="sim-speed-control" min="1" max="10" value="1">
+            <button id="pause-btn" class="secondary-btn control-btn" type="button">Pause</button>
           </div>
 
           <div id="stats-content"></div>
@@ -99,7 +102,12 @@
             <button class="view-btn" id="show-log-btn" type="button">Log</button>
           </div>
           
-          <div class="panel-preview">
+          <div id="sim-sidebar-preview" class="panel-preview hidden">
+            <label style="color: var(--text-secondary); font-size: 0.85rem; display: block; margin-bottom: 8px;">Live Simulation</label>
+            <canvas id="sim-preview-canvas" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; width: 100%; display: block;"></canvas>
+          </div>
+
+          <div id="graph-preview-panel" class="panel-preview">
             <label style="color: var(--text-secondary); font-size: 0.85rem; display: block; margin-bottom: 8px;">Population History</label>
             <canvas id="graph-canvas" width="330" height="150" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; width: 100%;"></canvas>
           </div>
