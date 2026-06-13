@@ -878,6 +878,212 @@ class Entity {
   }
 }
 
+// --- THIRD-PARTY LIBRARIES ---
+
+// Quadtree (timohausmann/quadtree-js — MIT)
+// Reduces entity-entity collision from O(n²) to O(n log n)
+function Quadtree(bounds, max_objects, max_levels, level) {
+  this.max_objects = max_objects || 10
+  this.max_levels  = max_levels  || 4
+  this.level       = level       || 0
+  this.bounds      = bounds
+  this.objects     = []
+  this.nodes       = []
+}
+Quadtree.prototype.split = function() {
+  const nL = this.level + 1, sw = this.bounds.width / 2, sh = this.bounds.height / 2
+  const x = this.bounds.x, y = this.bounds.y
+  this.nodes[0] = new Quadtree({ x: x + sw, y,        width: sw, height: sh }, this.max_objects, this.max_levels, nL)
+  this.nodes[1] = new Quadtree({ x,         y,        width: sw, height: sh }, this.max_objects, this.max_levels, nL)
+  this.nodes[2] = new Quadtree({ x,         y: y + sh, width: sw, height: sh }, this.max_objects, this.max_levels, nL)
+  this.nodes[3] = new Quadtree({ x: x + sw, y: y + sh, width: sw, height: sh }, this.max_objects, this.max_levels, nL)
+}
+Quadtree.prototype.getIndex = function(r) {
+  const idx = [], vm = this.bounds.x + this.bounds.width / 2, hm = this.bounds.y + this.bounds.height / 2
+  const n = r.y < hm, s = r.y + r.height > hm, w = r.x < vm, e = r.x + r.width > vm
+  if (n && e) idx.push(0)
+  if (n && w) idx.push(1)
+  if (s && w) idx.push(2)
+  if (s && e) idx.push(3)
+  return idx
+}
+Quadtree.prototype.insert = function(r) {
+  if (this.nodes.length) { this.getIndex(r).forEach(i => this.nodes[i].insert(r)); return }
+  this.objects.push(r)
+  if (this.objects.length > this.max_objects && this.level < this.max_levels) {
+    if (!this.nodes.length) this.split()
+    this.objects.forEach(o => this.getIndex(o).forEach(i => this.nodes[i].insert(o)))
+    this.objects = []
+  }
+}
+Quadtree.prototype.retrieve = function(r) {
+  let ret = [...this.objects]
+  if (this.nodes.length) this.getIndex(r).forEach(i => ret = ret.concat(this.nodes[i].retrieve(r)))
+  return this.level === 0 ? [...new Set(ret)] : ret
+}
+Quadtree.prototype.clear = function() {
+  this.objects = []
+  this.nodes.forEach(n => n.clear())
+  this.nodes = []
+}
+
+// Fantasy name generator (skeeto/fantasyname — Public Domain)
+// Used for procedurally named kings and queens
+String.prototype.combinations = function() { return 1 }
+String.prototype.min = function() { return this.length }
+String.prototype.max = function() { return this.length }
+String.prototype.enumerate = function() { return [String(this)] }
+var NameGen = {}
+NameGen.symbols = {
+  s: ['ach','ack','ad','age','ald','ale','an','ang','ar','ard','as','ash','at','ath','augh','aw','ban','bel','bur','cer','cha','che','dan','dar','del','den','dra','dyn','eld','elm','em','en','end','eng','enth','er','ess','est','et','gar','hat','hin','hon','ia','ight','ild','im','ina','ine','ing','ir','is','iss','it','kal','kel','kim','kin','ler','lor','lye','mor','mos','nal','ny','old','om','on','or','orm','os','ough','per','pol','qua','que','rad','rak','ran','ray','ril','ris','rod','roth','ryn','sam','say','ser','shy','skel','sul','tai','tan','tas','ther','tia','tin','ton','tor','tur','um','und','unt','urn','usk','ust','ver','ves','vor','war','wor','yer'],
+  v: ['a','e','i','o','u','y'],
+  V: ['a','e','i','o','u','y','ae','ai','au','ay','ea','ee','ei','eu','ey','ia','ie','oe','oi','oo','ou','ui'],
+  c: ['b','c','d','f','g','h','j','k','l','m','n','p','q','r','s','t','v','w','x','y','z'],
+  B: ['b','bl','br','c','ch','chr','cl','cr','d','dr','f','g','h','j','k','l','ll','m','n','p','ph','qu','r','rh','s','sch','sh','sl','sm','sn','st','str','sw','t','th','thr','tr','v','w','wh','y','z','zh'],
+  C: ['b','c','ch','ck','d','f','g','gh','h','k','l','ld','ll','lt','m','n','nd','nn','nt','p','ph','q','r','rd','rr','rt','s','sh','ss','st','t','th','v','w','y','z'],
+}
+NameGen._isString = o => Object.prototype.toString.call(o) === '[object String]'
+NameGen._compress = function(a) {
+  const emit = [], accum = []
+  const dump = () => { if (accum.length) { emit.push(accum.join('')); accum.length = 0 } }
+  a.forEach(x => NameGen._isString(x) ? accum.push(x) : (dump(), emit.push(x)))
+  dump(); return emit
+}
+NameGen._capitalize = s => s.replace(/^./, c => c.toUpperCase())
+NameGen._reverse    = s => s.split(/(?:)/).reverse().join('')
+NameGen.Random = function Random(gs) {
+  if (!(this instanceof NameGen.Random)) {
+    return gs.length === 0 ? '' : gs.length === 1 ? gs[0] : new NameGen.Random(gs)
+  }
+  this.sub = gs
+}
+NameGen.Random.prototype.toString = function() { return this.sub.length ? this.sub[Math.floor(Math.random() * this.sub.length)].toString() : '' }
+NameGen.Random.prototype.combinations = function() { return Math.max(1, this.sub.reduce((t, g) => t + g.combinations(), 0)) }
+NameGen.Random.prototype.min = function() { return Math.min(...this.sub.map(g => g.min())) }
+NameGen.Random.prototype.max = function() { return Math.max(...this.sub.map(g => g.max())) }
+NameGen.Random.prototype.enumerate = function() { return [].concat(...this.sub.map(g => g.enumerate())) }
+NameGen.Sequence = function Sequence(gs) {
+  gs = NameGen._compress(gs)
+  if (!(this instanceof NameGen.Sequence)) {
+    return gs.length === 0 ? '' : gs.length === 1 ? gs[0] : new NameGen.Sequence(gs)
+  }
+  this.sub = gs
+}
+NameGen.Sequence.prototype.toString = function() { return this.sub.join('') }
+NameGen.Sequence.prototype.combinations = function() { return this.sub.reduce((t, g) => t * g.combinations(), 1) }
+NameGen.Sequence.prototype.min = function() { return this.sub.reduce((t, g) => t + g.min(), 0) }
+NameGen.Sequence.prototype.max = function() { return this.sub.reduce((t, g) => t + g.max(), 0) }
+NameGen.Sequence.prototype.enumerate = function() {
+  const enums = this.sub.map(g => g.enumerate())
+  const enumerate = (enums, prefix) => enums.length === 1 ? enums[0].map(e => prefix + e)
+    : [].concat(...enums[0].map((_, i) => enumerate(enums.slice(1), prefix + enums[0][i])))
+  return enumerate(enums, '')
+}
+NameGen.fromTransform = function(f) {
+  function G(g) {
+    if (!(this instanceof G)) return NameGen._isString(g) ? f(g) : new G(g)
+    this.generator = g
+  }
+  G.prototype.toString = function() { return f(this.generator.toString()) }
+  G.prototype.combinations = function() { return this.generator.combinations() }
+  G.prototype.min = function() { return this.generator.min() }
+  G.prototype.max = function() { return this.generator.max() }
+  G.prototype.enumerate = function() { return this.generator.enumerate().map(f) }
+  return G
+}
+NameGen.Capitalizer = NameGen.fromTransform(NameGen._capitalize)
+NameGen.Reverser    = NameGen.fromTransform(NameGen._reverse)
+NameGen._Group = function() { this.set = [[]]; this.wrappers = [] }
+NameGen._Group.prototype.add = function(g) {
+  while (this.wrappers.length) { const t = this.wrappers.pop(); g = t(g) }
+  this.set[this.set.length - 1].push(g); return this
+}
+NameGen._Group.prototype.split = function() { this.set.push([]); return this }
+NameGen._Group.prototype.wrap  = function(t) { this.wrappers.push(t); return this }
+NameGen._Group.prototype.emit  = function() { return NameGen.Random(this.set.map(NameGen.Sequence)) }
+NameGen._Literal = function() { NameGen._Group.call(this) }
+NameGen._Literal.prototype = Object.create(NameGen._Group.prototype)
+NameGen._Symbol  = function() { NameGen._Group.call(this) }
+NameGen._Symbol.prototype = Object.create(NameGen._Group.prototype)
+NameGen._Symbol.prototype.add = function(g, literal) {
+  if (!literal) g = NameGen.Random(NameGen.symbols[g] || [g])
+  NameGen._Group.prototype.add.call(this, g); return this
+}
+NameGen.compile = function(input) {
+  const stack = []; stack.top = () => stack[stack.length - 1]
+  stack.push(new NameGen._Symbol())
+  for (const c of input) {
+    switch (c) {
+      case '<': stack.push(new NameGen._Symbol()); break
+      case '(': stack.push(new NameGen._Literal()); break
+      case '>': case ')': { const last = stack.pop().emit(); stack.top().add(last, true); break }
+      case '|': stack.top().split(); break
+      case '!': stack.top() instanceof NameGen._Symbol ? stack.top().wrap(NameGen.Capitalizer) : stack.top().add(c); break
+      case '~': stack.top() instanceof NameGen._Symbol ? stack.top().wrap(NameGen.Reverser) : stack.top().add(c); break
+      default:  stack.top().add(c)
+    }
+  }
+  return stack.top().emit()
+}
+// Pre-compiled king/queen name generator
+const kingNameGen = NameGen.compile('!Bs|!BsV|!BVs|!BsCv')
+
+// Territory border tracer (scottglz/marching-squares — open source)
+// Traces a closed polygon around each society's territory region
+const _MS_UP=[0,-1,1],_MS_DOWN=[0,1,0],_MS_LEFT=[-1,0,1],_MS_RIGHT=[1,0,0]
+const _MS_TRANS=[null,[_MS_LEFT,_MS_LEFT],[_MS_UP,_MS_UP],[_MS_LEFT,_MS_LEFT],[_MS_DOWN,_MS_DOWN],[_MS_DOWN,_MS_DOWN],[_MS_UP,_MS_DOWN],[_MS_DOWN,_MS_DOWN],[_MS_RIGHT,_MS_RIGHT],[_MS_RIGHT,_MS_LEFT],[_MS_UP,_MS_UP],[_MS_LEFT,_MS_LEFT],[_MS_RIGHT,_MS_RIGHT],[_MS_RIGHT,_MS_RIGHT],[_MS_UP,_MS_UP]]
+function traceRegion(x, y, isInside) {
+  const startX = x, startY = y
+  const ret = [{x, y}]
+  let dir = _MS_DOWN
+  let square = (isInside(x-1,y-1)?1:0)+(isInside(x,y-1)?2:0)+(isInside(x-1,y)?4:0)+(isInside(x,y)?8:0)
+  if (square===0||square===15) throw new Error('Bad start')
+  while (true) {
+    dir = _MS_TRANS[square][dir[2]]
+    x += dir[0]; y += dir[1]
+    if (x===startX && y===startY) return ret
+    ret.push({x,y})
+    if      (dir===_MS_DOWN)  square=((square&12)>>2)
+    else if (dir===_MS_UP)    square=((square&3)<<2)
+    else if (dir===_MS_RIGHT) square=((square&10)>>1)
+    else if (dir===_MS_LEFT)  square=((square&5)<<1)
+    if      (dir===_MS_DOWN||dir===_MS_LEFT)  square+=(isInside(x-1,y)?4:0)
+    else                                       square+=(isInside(x,y-1)?2:0)
+    if      (dir===_MS_DOWN||dir===_MS_RIGHT) square+=(isInside(x,y)?8:0)
+    else                                       square+=(isInside(x-1,y-1)?1:0)
+  }
+}
+
+// Draw crisp territory outlines via marching squares polygon tracing
+function drawTerritoryBorders(targetCtx) {
+  const gs = CONFIG.gridSize
+  for (const soc of simulation.societies) {
+    const isInside = (x, y) => simulation.isInsideGrid(x, y) && simulation.territory[x][y] === soc
+    const visitedCorners = new Set()
+    for (let gx = 1; gx <= simulation.cols; gx++) {
+      for (let gy = 1; gy <= simulation.rows; gy++) {
+        if (visitedCorners.has(gx * 10000 + gy)) continue
+        const bits = (isInside(gx-1,gy-1)?1:0)+(isInside(gx,gy-1)?2:0)+(isInside(gx-1,gy)?4:0)+(isInside(gx,gy)?8:0)
+        if (bits===0||bits===15) continue
+        try {
+          const polygon = traceRegion(gx, gy, isInside)
+          if (polygon.length < 3) continue
+          polygon.forEach(p => visitedCorners.add(p.x * 10000 + p.y))
+          targetCtx.beginPath()
+          targetCtx.moveTo(polygon[0].x * gs, polygon[0].y * gs)
+          for (let i = 1; i < polygon.length; i++) targetCtx.lineTo(polygon[i].x * gs, polygon[i].y * gs)
+          targetCtx.closePath()
+          targetCtx.strokeStyle = soc.color
+          targetCtx.lineWidth = 1.5
+          targetCtx.globalAlpha = 0.55
+          targetCtx.stroke()
+        } catch(e) { /* bad starting point — skip */ }
+      }
+    }
+  }
+  targetCtx.globalAlpha = 1.0
+}
+
 // --- RL STATE OBSERVATION ---
 
 function getEntityState(entity) {
@@ -1102,6 +1308,13 @@ const simulation = {
   },
 
   update() {
+    // Build spatial index for entity-entity collision (O(n log n) vs O(n²))
+    const qt = new Quadtree({ x: 0, y: 0, width, height }, 10, 5)
+    for (const e of this.entities) {
+      qt.insert({ x: e.pos.x - 16, y: e.pos.y - 16, width: 32, height: 32, _e: e })
+    }
+    this._qt = qt // expose for getEntityState RL scans
+
     // Patient Zero Plague Spawning
     if (this.entities.length > 50 && Math.random() < 0.0005) {
       const luckyOne = this.entities[Math.floor(Math.random() * this.entities.length)]
@@ -1139,7 +1352,9 @@ const simulation = {
       if (newKing) {
         if (soc.king && soc.king !== newKing) soc.king.title = 'peasant'
         if (soc.king !== newKing) {
-          logEvent(`${soc.name} has crowned a new King!`, soc.color)
+          if (!newKing._rulerName) newKing._rulerName = kingNameGen.toString()
+          const title = newKing.gender === 'female' ? 'Queen' : 'King'
+          logEvent(`${soc.name} has crowned ${title} ${newKing._rulerName}!`, soc.color)
         }
         newKing.title = 'king'
         soc.king = newKing
@@ -1191,6 +1406,7 @@ const simulation = {
       })
     }
 
+    const _qtProcessed = new Set()
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i]
       e.update()
@@ -1206,8 +1422,12 @@ const simulation = {
         }
       }
 
-      for (let j = i - 1; j >= 0; j--) {
-        const other = this.entities[j]
+      // Entity-entity collision — quadtree narrows candidates, Set deduplicates pairs
+      const searchR = 20
+      const candidates = qt.retrieve({ x: e.pos.x - searchR, y: e.pos.y - searchR, width: searchR * 2, height: searchR * 2 })
+      for (const c of candidates) {
+        const other = c._e
+        if (other === e || _qtProcessed.has(other)) continue
         const d = e.pos.sub(other.pos).mag()
         if (d < e.size + other.size) {
           e.interact(other)
@@ -1219,6 +1439,7 @@ const simulation = {
           other.pos.sub(dir)
         }
       }
+      _qtProcessed.add(e)
 
       if (e.hp <= 0) {
         if (rlMode && e._rlMoveState !== null) {
@@ -1273,6 +1494,9 @@ const simulation = {
       }
     }
     ctx.restore()
+
+    // Crisp territory borders via marching squares polygon tracing
+    drawTerritoryBorders(ctx)
 
     // Day/Night filter over territory
     if (nightFactor > 0) {
