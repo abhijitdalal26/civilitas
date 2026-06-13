@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game Theory Society Simulation</title>
+    <!-- Google Fonts for typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app">
+      <div id="ui-overlay" class="glass-panel">
+        <header>
+          <h1>Society Simulator</h1>
+          <p class="subtitle">Game Theory Evolution</p>
+        </header>
+
+        <div id="setup-panel">
+          <div class="global-config" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+            <h2>Global Settings</h2>
+            <label for="sim-years">Simulation Duration (Years)</label>
+            <input type="number" id="sim-years" value="100" min="10" max="5000" style="width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px; border-radius: 6px;">
+          </div>
+
+          <div class="society-config society-1">
+            <h2>Society Alpha</h2>
+            <div class="color-indicator" style="background: #00f0ff; box-shadow: 0 0 10px #00f0ff;"></div>
+            
+            <label for="s1-strategy">Core Strategy</label>
+            <select id="s1-strategy">
+              <option value="aggressive">Aggressive (Always Cheat)</option>
+              <option value="defensive">Defensive (Always Cooperate)</option>
+              <option value="cooperative">Cooperative (Tit-for-Tat / Copycat)</option>
+              <option value="grudger">Grudger (Unforgiving)</option>
+              <option value="detective">Detective (Analyze then exploit)</option>
+            </select>
+
+            <label for="s1-aggression">Aggression Level</label>
+            <input type="range" id="s1-aggression" min="0" max="100" value="80">
+
+            <label for="s1-speed">Base Speed</label>
+            <input type="range" id="s1-speed" min="1" max="5" value="3" step="0.5">
+
+            <label class="checkbox-row" for="s1-women-fight">
+              <input type="checkbox" id="s1-women-fight">
+              Allow women to fight
+            </label>
+          </div>
+
+          <div class="society-config society-2">
+            <h2>Society Beta</h2>
+            <div class="color-indicator" style="background: #ff0055; box-shadow: 0 0 10px #ff0055;"></div>
+
+            <label for="s2-strategy">Core Strategy</label>
+            <select id="s2-strategy">
+              <option value="defensive">Defensive (Always Cooperate)</option>
+              <option value="aggressive">Aggressive (Always Cheat)</option>
+              <option value="cooperative" selected>Cooperative (Tit-for-Tat / Copycat)</option>
+              <option value="grudger">Grudger (Unforgiving)</option>
+              <option value="detective">Detective (Analyze then exploit)</option>
+            </select>
+
+            <label for="s2-aggression">Aggression Level</label>
+            <input type="range" id="s2-aggression" min="0" max="100" value="30">
+
+            <label for="s2-speed">Base Speed</label>
+            <input type="range" id="s2-speed" min="1" max="5" value="4" step="0.5">
+
+            <label class="checkbox-row" for="s2-women-fight">
+              <input type="checkbox" id="s2-women-fight" checked>
+              Allow women to fight
+            </label>
+          </div>
+
+          <button id="start-btn" class="primary-btn">Start Simulation</button>
+        </div>
+
+        <div id="stats-panel" class="hidden">
+          <h2>Live Stats</h2>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div id="year-display" style="font-size: 1.5rem; font-weight: bold; color: #00f0ff;">Year: 0</div>
+            <div id="season-display" style="font-size: 1rem; font-weight: 500; color: #ffeb3b; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 4px;">Spring</div>
+          </div>
+          
+          <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <label for="sim-speed-control" style="color: var(--text-secondary); font-size: 0.85rem;">Simulation Speed</label>
+            <input type="range" id="sim-speed-control" min="1" max="10" value="1" style="width: 100%; margin-top: 8px;">
+            <div id="speed-label" style="text-align: right; font-size: 0.8rem; color: #8a8d98; margin-top: 4px;">1x</div>
+          </div>
+
+          <div id="stats-content"></div>
+
+          <div class="view-switcher">
+            <button class="view-btn active" id="show-map-btn" type="button">Map</button>
+            <button class="view-btn" id="show-graph-btn" type="button">Graph</button>
+            <button class="view-btn" id="show-log-btn" type="button">Log</button>
+          </div>
+          
+          <div class="panel-preview">
+            <label style="color: var(--text-secondary); font-size: 0.85rem; display: block; margin-bottom: 8px;">Population History</label>
+            <canvas id="graph-canvas" width="330" height="150" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; width: 100%;"></canvas>
+          </div>
+
+          <div class="panel-preview">
+            <label style="color: var(--text-secondary); font-size: 0.85rem; display: block; margin-bottom: 8px;">World History Log</label>
+            <div id="history-log" style="height: 120px; overflow-y: auto; font-size: 0.8rem; background: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); color: #ccc;">
+            </div>
+          </div>
+
+          <button id="reset-btn" class="secondary-btn" style="margin-top: 24px;">Reset</button>
+        </div>
+      </div>
+      
+      <div id="simulation-container">
+        <div id="graph-stage" class="stage-view hidden">
+          <canvas id="graph-canvas-large"></canvas>
+        </div>
+        <div id="log-stage" class="stage-view hidden">
+          <div id="history-log-large"></div>
+        </div>
+        <div id="simulation-stage" class="stage-view active">
+          <canvas id="simulation-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
