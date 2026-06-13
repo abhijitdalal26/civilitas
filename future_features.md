@@ -108,6 +108,50 @@ Pre-configured starting conditions with dramatic setups:
 
 ---
 
+---
+
+## RL Mode — Implementation Notes (Paused, Code Is In)
+
+RL mode is fully implemented and lives behind the "Enable RL Mode" checkbox in the setup panel. Code is production-ready but turned off by default. To resume:
+
+### Architecture
+- **One `RLBrain` per society** (shared policy — all entities in a society feed one replay buffer and train one network). This is more efficient than per-entity networks and produces emergent collective behaviour.
+- **Two networks per brain**: `moveNet` (controls 8-direction movement) and `combatNet` (hawk vs dove decisions).
+- **Topology**: `moveNet` = 11→24→16→8, `combatNet` = 11→16→12→2. ReLU hidden, linear output (Q-values).
+- **Algorithm**: DQN-lite — experience replay buffer (max 2000), epsilon-greedy exploration (ε=1.0 → 0.05), MSE loss, vanilla SGD, batch size 32 trained every 30 frames.
+- **No external dependencies** — pure vanilla JS with `Float32Array` for performance.
+
+### State vector (11 features per entity)
+| Index | Feature |
+|-------|---------|
+| 0 | Own HP (normalized) |
+| 1 | Own age (normalized) |
+| 2 | Nearest food distance (within 350px scan radius) |
+| 3,4 | Nearest food direction (dx, dy unit vector) |
+| 5 | Nearest enemy distance |
+| 6,7 | Nearest enemy direction |
+| 8 | Nearest enemy HP |
+| 9 | On own territory (0 or 1) |
+| 10 | Nearest friendly distance |
+
+### Reward signals
+- **+1.5** for eating food
+- **+/- (ΔHP × 0.5)** per frame (survival pressure)
+- **+2.0** kill bonus (combat net)
+- **-2.0** on death (terminal experience)
+
+### Cult inheritance
+When a tribe rebellion spawns a new cult, it creates `new RLBrain(parentBrain)` — the child network clones parent weights and mutates them (8% per-weight chance, ±0.2 strength). The child's epsilon resets to at least 0.35 so it re-explores its mutated policy.
+
+### What to do next when resuming
+1. Run the simulation in RL mode for 50+ years at 10x speed to let epsilon decay and policy converge
+2. Watch for emergent strategy shifts — aggressive societies should learn hawk in contested zones, dove near own territory
+3. Consider adding a reward for territory capture (+0.5 per newly claimed cell)
+4. Consider per-entity networks for diversity, but profile performance first
+5. Potential extension: add a second hidden layer to `combatNet` for more complex opponent modelling
+
+---
+
 ## Immediate Next Steps (What We're Building Now)
 
 1. **Hover tooltips** — highest impact, lowest effort

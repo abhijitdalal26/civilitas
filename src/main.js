@@ -2,16 +2,209 @@ import './style.css'
 
 // --- SIMULATION CONSTANTS ---
 const CONFIG = {
-  foodSpawnRate: 4, 
+  foodSpawnRate: 4,
   maxFood: 400,
-  startPopulation: 16, 
-  reproductionCost: 50, 
+  startPopulation: 16,
+  reproductionCost: 50,
   maxHp: 100,
-  maxAge: 4800, // Scaled for longer years (20 years * 240 frames)
-  adultAge: 960, // 4 years; children stay civilians until this age
-  foodEnergy: 40, 
-  baseDamage: 8, 
-  gridSize: 30, 
+  maxAge: 4800,
+  adultAge: 960,
+  foodEnergy: 40,
+  baseDamage: 8,
+  gridSize: 30,
+}
+
+// --- REINFORCEMENT LEARNING ---
+
+const RL_STATE_SIZE = 11
+const RL_MOVE_ACTIONS = 8
+const RL_COMBAT_ACTIONS = 2
+// Normalized direction vectors for 8 movement actions (N, NE, E, SE, S, SW, W, NW)
+const MOVE_DIRS = [
+  [0, -1], [0.707, -0.707], [1, 0], [0.707, 0.707],
+  [0, 1], [-0.707, 0.707], [-1, 0], [-0.707, -0.707]
+]
+
+class NeuralNet {
+  constructor(layerSizes) {
+    this.layers = layerSizes
+    this.weights = []
+    this.biases = []
+    for (let l = 0; l < layerSizes.length - 1; l++) {
+      const inSize = layerSizes[l]
+      const outSize = layerSizes[l + 1]
+      const scale = Math.sqrt(2.0 / inSize) // He init
+      const w = []
+      for (let j = 0; j < outSize; j++) {
+        w.push(Float32Array.from({ length: inSize }, () => (Math.random() - 0.5) * 2 * scale))
+      }
+      this.weights.push(w)
+      this.biases.push(new Float32Array(outSize))
+    }
+  }
+
+  forward(input) {
+    const activations = [input instanceof Float32Array ? input : Float32Array.from(input)]
+    for (let l = 0; l < this.weights.length; l++) {
+      const prev = activations[l]
+      const w = this.weights[l]
+      const b = this.biases[l]
+      const isLast = l === this.weights.length - 1
+      const next = new Float32Array(w.length)
+      for (let j = 0; j < w.length; j++) {
+        let sum = b[j]
+        const wj = w[j]
+        for (let i = 0; i < prev.length; i++) sum += wj[i] * prev[i]
+        next[j] = isLast ? sum : (sum > 0 ? sum : 0) // linear output, ReLU hidden
+      }
+      activations.push(next)
+    }
+    return activations
+  }
+
+  // MSE loss backprop, SGD update
+  backward(activations, target, lr) {
+    const L = this.weights.length
+    const deltas = new Array(L + 1).fill(null)
+
+    const out = activations[L]
+    const outDelta = new Float32Array(out.length)
+    for (let j = 0; j < out.length; j++) outDelta[j] = out[j] - target[j]
+    deltas[L] = outDelta
+
+    for (let l = L - 1; l >= 1; l--) {
+      const act = activations[l]
+      const dNext = deltas[l + 1]
+      const wNext = this.weights[l]
+      const d = new Float32Array(act.length)
+      for (let i = 0; i < act.length; i++) {
+        if (act[i] <= 0) continue // ReLU derivative
+        let err = 0
+        for (let j = 0; j < dNext.length; j++) err += dNext[j] * wNext[j][i]
+        d[i] = err
+      }
+      deltas[l] = d
+    }
+
+    for (let l = 0; l < L; l++) {
+      const dNext = deltas[l + 1]
+      const act = activations[l]
+      const w = this.weights[l]
+      const b = this.biases[l]
+      for (let j = 0; j < w.length; j++) {
+        const dj = dNext[j]
+        if (dj === 0) continue
+        const wj = w[j]
+        for (let i = 0; i < wj.length; i++) wj[i] -= lr * dj * act[i]
+        b[j] -= lr * dj
+      }
+    }
+  }
+
+  clone() {
+    const copy = new NeuralNet([...this.layers])
+    for (let l = 0; l < this.weights.length; l++) {
+      copy.weights[l] = this.weights[l].map(row => new Float32Array(row))
+      copy.biases[l] = new Float32Array(this.biases[l])
+    }
+    return copy
+  }
+
+  mutate(rate = 0.08, strength = 0.2) {
+    for (const layer of this.weights) {
+      for (const row of layer) {
+        for (let i = 0; i < row.length; i++) {
+          if (Math.random() < rate) row[i] += (Math.random() - 0.5) * 2 * strength
+        }
+      }
+    }
+  }
+}
+
+// One RLBrain per society — shared policy, all entities feed its replay buffer
+class RLBrain {
+  constructor(parentBrain = null) {
+    this.moveNet = parentBrain
+      ? parentBrain.moveNet.clone()
+      : new NeuralNet([RL_STATE_SIZE, 24, 16, RL_MOVE_ACTIONS])
+    this.combatNet = parentBrain
+      ? parentBrain.combatNet.clone()
+      : new NeuralNet([RL_STATE_SIZE, 16, 12, RL_COMBAT_ACTIONS])
+
+    if (parentBrain) {
+      this.moveNet.mutate(0.1, 0.2)
+      this.combatNet.mutate(0.1, 0.2)
+    }
+
+    this.moveBuffer = []
+    this.combatBuffer = []
+    this.maxBuffer = 2000
+    // Start fully exploratory; cults inherit parent epsilon so they're less random
+    this.epsilon = parentBrain ? Math.max(0.35, parentBrain.epsilon) : 1.0
+    this.epsilonDecay = 0.9995
+    this.epsilonMin = 0.05
+    this.lr = 0.003
+    this.gamma = 0.95
+    this.totalReward = 0
+    this.rewardCount = 0
+  }
+
+  chooseMove(state) {
+    if (Math.random() < this.epsilon) return Math.floor(Math.random() * RL_MOVE_ACTIONS)
+    const acts = this.moveNet.forward(state)
+    const q = acts[acts.length - 1]
+    let best = 0
+    for (let i = 1; i < q.length; i++) if (q[i] > q[best]) best = i
+    return best
+  }
+
+  chooseCombat(state) {
+    if (Math.random() < this.epsilon) return Math.random() < 0.5 ? 0 : 1
+    const acts = this.combatNet.forward(state)
+    const q = acts[acts.length - 1]
+    return q[0] >= q[1] ? 0 : 1 // 0=hawk, 1=dove
+  }
+
+  rememberMove(state, action, reward, nextState) {
+    this.totalReward += reward
+    this.rewardCount++
+    if (this.moveBuffer.length >= this.maxBuffer) this.moveBuffer.shift()
+    this.moveBuffer.push({ state, action, reward, nextState })
+  }
+
+  rememberCombat(state, action, reward, nextState) {
+    if (this.combatBuffer.length >= this.maxBuffer) this.combatBuffer.shift()
+    this.combatBuffer.push({ state, action, reward, nextState })
+  }
+
+  train(batchSize = 32) {
+    this._trainNet(this.moveNet, this.moveBuffer, batchSize, RL_MOVE_ACTIONS)
+    if (this.combatBuffer.length >= 8) {
+      this._trainNet(this.combatNet, this.combatBuffer, Math.min(16, this.combatBuffer.length), RL_COMBAT_ACTIONS)
+    }
+    this.epsilon = Math.max(this.epsilonMin, this.epsilon * this.epsilonDecay)
+  }
+
+  _trainNet(net, buffer, batchSize, numActions) {
+    if (buffer.length < batchSize) return
+    for (let b = 0; b < batchSize; b++) {
+      const exp = buffer[Math.floor(Math.random() * buffer.length)]
+      const curActs = net.forward(exp.state)
+      const nxtActs = net.forward(exp.nextState)
+      const curQ = curActs[curActs.length - 1]
+      const nxtQ = nxtActs[nxtActs.length - 1]
+      let maxNxt = nxtQ[0]
+      for (let i = 1; i < nxtQ.length; i++) if (nxtQ[i] > maxNxt) maxNxt = nxtQ[i]
+      const target = new Float32Array(numActions)
+      for (let i = 0; i < numActions; i++) target[i] = curQ[i]
+      target[exp.action] = exp.reward + this.gamma * maxNxt
+      net.backward(curActs, target, this.lr)
+    }
+  }
+
+  get avgReward() {
+    return this.rewardCount > 0 ? (this.totalReward / this.rewardCount).toFixed(3) : '—'
+  }
 }
 
 // --- DOM ELEMENTS ---
@@ -63,7 +256,8 @@ let activeView = 'map'
 let graphHover = null
 let mapWidth = width
 let mapHeight = height
-const FRAMES_PER_YEAR = 240 // A year is now 4 times longer (4 seconds at 1x speed) 
+let rlMode = false
+const FRAMES_PER_YEAR = 240
 
 // Seasons
 const SEASONS = [
@@ -276,11 +470,12 @@ class Society {
     this.id = id
     this.name = name
     this.color = color
-    this.strategy = strategy 
-    this.aggression = aggression / 100 
+    this.strategy = strategy
+    this.aggression = aggression / 100
     this.speed = speed
     this.allowWomenFighters = allowWomenFighters
     this.king = null
+    this.brain = null // RLBrain instance, set in simulation.init() when rlMode is on
   }
 }
 
@@ -345,6 +540,14 @@ class Entity {
     
     this.size = 3
     this.dmgMult = 1
+
+    // RL fields — only used when rlMode is on
+    this._rlMoveState = null
+    this._rlMoveAction = -1
+    this._rlPrevHp = this.hp
+    this._rlFrameReward = 0
+    this._rlCombatState = null
+    this._rlCombatAction = -1
   }
 
   isChild() {
@@ -396,64 +599,67 @@ class Entity {
     // Season damage (Winter)
     this.hp -= SEASONS[currentSeasonIdx].coldDmg
 
-    // AI Movement Logic
-    let desired = null
-    let recordDist = 800 // Greatly increased vision radius
-
-    if (this.hp < 70) {
-      // Hunger Drive: Seek closest food
-      for (let i = 0; i < simulation.foods.length; i++) {
-        const f = simulation.foods[i]
-        const d = this.pos.sub(f.pos).mag()
-        if (d < recordDist) {
-          recordDist = d
-          desired = f.pos.sub(this.pos)
-        }
+    // Movement: RL brain (if enabled) or classic heuristic
+    if (rlMode && this.society.brain) {
+      const state = getEntityState(this)
+      // Store previous experience before overwriting state
+      if (this._rlMoveState !== null) {
+        const reward = (this.hp - this._rlPrevHp) * 0.5 + this._rlFrameReward
+        this.society.brain.rememberMove(this._rlMoveState, this._rlMoveAction, reward, state)
       }
+      this._rlFrameReward = 0
+      const action = this.society.brain.chooseMove(state)
+      this._rlMoveState = state
+      this._rlMoveAction = action
+      this._rlPrevHp = this.hp
+      // Apply chosen direction directly — the network steers, speed applied below
+      const dir = MOVE_DIRS[action]
+      this.vel.x = dir[0]
+      this.vel.y = dir[1]
     } else {
-      // Mating Drive: Seek healthy friendly entities of OPPOSITE gender
-      let foundMate = false
-      for (let i = 0; i < simulation.entities.length; i++) {
-        const other = simulation.entities[i]
-        if (other !== this && other.society === this.society && other.hp > 70 && other.gender !== this.gender) {
-          const d = this.pos.sub(other.pos).mag()
-          if (d < recordDist) {
-            recordDist = d
-            desired = other.pos.sub(this.pos)
-            foundMate = true
-          }
+      // Classic heuristic AI
+      let desired = null
+      let recordDist = 800
+
+      if (this.hp < 70) {
+        for (let i = 0; i < simulation.foods.length; i++) {
+          const f = simulation.foods[i]
+          const d = this.pos.sub(f.pos).mag()
+          if (d < recordDist) { recordDist = d; desired = f.pos.sub(this.pos) }
         }
-      }
-      
-      // Herd Drive: If no mate nearby, stick to the closest friendly entity so they don't scatter
-      if (!foundMate) {
+      } else {
+        let foundMate = false
         for (let i = 0; i < simulation.entities.length; i++) {
           const other = simulation.entities[i]
-          if (other !== this && other.society === this.society) {
+          if (other !== this && other.society === this.society && other.hp > 70 && other.gender !== this.gender) {
             const d = this.pos.sub(other.pos).mag()
-            if (d < recordDist) {
-              recordDist = d
-              desired = other.pos.sub(this.pos)
+            if (d < recordDist) { recordDist = d; desired = other.pos.sub(this.pos); foundMate = true }
+          }
+        }
+        if (!foundMate) {
+          for (let i = 0; i < simulation.entities.length; i++) {
+            const other = simulation.entities[i]
+            if (other !== this && other.society === this.society) {
+              const d = this.pos.sub(other.pos).mag()
+              if (d < recordDist) { recordDist = d; desired = other.pos.sub(this.pos) }
             }
           }
         }
       }
-    }
 
-    if (desired) {
-      // Steer towards target
-      desired.normalize()
-      desired.mult(0.5) // Steering strength
-      this.vel.add(desired)
-    } else {
-      // Random wander if nothing is nearby
-      let targetVec = new Vector((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5)
-      const cos = Math.cos(targetVec.x)
-      const sin = Math.sin(targetVec.y)
-      const vx = this.vel.x * cos - this.vel.y * sin
-      const vy = this.vel.x * sin + this.vel.y * cos
-      this.vel.x = vx
-      this.vel.y = vy
+      if (desired) {
+        desired.normalize()
+        desired.mult(0.5)
+        this.vel.add(desired)
+      } else {
+        const targetVec = new Vector((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5)
+        const cos = Math.cos(targetVec.x)
+        const sin = Math.sin(targetVec.y)
+        const vx = this.vel.x * cos - this.vel.y * sin
+        const vy = this.vel.x * sin + this.vel.y * cos
+        this.vel.x = vx
+        this.vel.y = vy
+      }
     }
     
     const gridX = Math.floor(this.pos.x / CONFIG.gridSize)
@@ -528,9 +734,18 @@ class Entity {
   }
 
   decideAction(opponent) {
+    // RL combat decision — brain outputs 0=hawk or 1=dove
+    if (rlMode && this.society.brain) {
+      const state = getEntityState(this)
+      const action = this.society.brain.chooseCombat(state)
+      this._rlCombatState = state
+      this._rlCombatAction = action
+      return action === 0 ? 'hawk' : 'dove'
+    }
+
     const oppId = opponent.society.id
     if (!this.memory[oppId]) this.memory[oppId] = []
-    
+
     const mem = this.memory[oppId]
     const strat = this.society.strategy
 
@@ -592,6 +807,9 @@ class Entity {
     this.cooldown = 30
     other.cooldown = 30
 
+    const thisHpBefore = this.hp
+    const otherHpBefore = other.hp
+
     let actA = this.decideAction(other)
     let actB = other.decideAction(this)
 
@@ -633,7 +851,81 @@ class Entity {
       this.kills++
       if (this.kills === 3) logEvent(`A peasant of ${this.society.name} became a Commander!`, this.society.color)
     }
+
+    // Record RL combat experiences — reward = HP delta + kill bonus
+    if (rlMode) {
+      if (this._rlCombatState !== null) {
+        const nextState = getEntityState(this)
+        const killBonus = (this.hp > 0 && other.hp <= 0) ? 2.0 : 0
+        this.society.brain.rememberCombat(
+          this._rlCombatState, this._rlCombatAction,
+          (this.hp - thisHpBefore) * 0.3 + killBonus,
+          nextState
+        )
+        this._rlCombatState = null
+      }
+      if (other._rlCombatState !== null) {
+        const nextState = getEntityState(other)
+        const killBonus = (other.hp > 0 && this.hp <= 0) ? 2.0 : 0
+        other.society.brain.rememberCombat(
+          other._rlCombatState, other._rlCombatAction,
+          (other.hp - otherHpBefore) * 0.3 + killBonus,
+          nextState
+        )
+        other._rlCombatState = null
+      }
+    }
   }
+}
+
+// --- RL STATE OBSERVATION ---
+
+function getEntityState(entity) {
+  const scanR = 350 // vision radius — limits O(n²) cost
+  let fdx = 0, fdy = 0, fdist = 1
+  let minFd = scanR
+  for (const f of simulation.foods) {
+    const dx = f.pos.x - entity.pos.x, dy = f.pos.y - entity.pos.y
+    if (Math.abs(dx) > scanR || Math.abs(dy) > scanR) continue
+    const d = Math.sqrt(dx * dx + dy * dy)
+    if (d < minFd) {
+      minFd = d; fdist = d / scanR
+      fdx = dx / (d + 1e-6); fdy = dy / (d + 1e-6)
+    }
+  }
+  let edx = 0, edy = 0, edist = 1, ehp = 1
+  let minEd = scanR
+  for (const e of simulation.entities) {
+    if (e.society === entity.society) continue
+    const dx = e.pos.x - entity.pos.x, dy = e.pos.y - entity.pos.y
+    if (Math.abs(dx) > scanR || Math.abs(dy) > scanR) continue
+    const d = Math.sqrt(dx * dx + dy * dy)
+    if (d < minEd) {
+      minEd = d; edist = d / scanR
+      edx = dx / (d + 1e-6); edy = dy / (d + 1e-6)
+      ehp = e.hp / CONFIG.maxHp
+    }
+  }
+  let frdist = 1, minFrd = scanR
+  for (const e of simulation.entities) {
+    if (e === entity || e.society !== entity.society) continue
+    const dx = e.pos.x - entity.pos.x, dy = e.pos.y - entity.pos.y
+    if (Math.abs(dx) > scanR || Math.abs(dy) > scanR) continue
+    const d = Math.sqrt(dx * dx + dy * dy)
+    if (d < minFrd) { minFrd = d; frdist = d / scanR }
+  }
+  const gx = Math.floor(entity.pos.x / CONFIG.gridSize)
+  const gy = Math.floor(entity.pos.y / CONFIG.gridSize)
+  const onOwn = simulation.isInsideGrid(gx, gy) && simulation.territory[gx][gy] === entity.society ? 1 : 0
+  return new Float32Array([
+    entity.hp / CONFIG.maxHp,                        // 0: own HP
+    Math.min(1, entity.age / entity.personalMaxAge), // 1: age
+    fdist, fdx, fdy,                                  // 2-4: food vector
+    edist, edx, edy,                                  // 5-7: nearest enemy vector
+    ehp,                                              // 8: enemy HP
+    onOwn,                                            // 9: on own territory
+    frdist,                                           // 10: nearest friendly dist
+  ])
 }
 
 // --- ENGINE ---
@@ -660,6 +952,10 @@ const simulation = {
       new Society(2, 'Beta', '#ff0055', soc2Config.strat, soc2Config.agg, soc2Config.spd, soc2Config.allowWomenFighters)
     ]
     logEvent('Founding combat rules are locked and inherited by descendants.', '#ffd166')
+    if (rlMode) {
+      this.societies.forEach(soc => { soc.brain = new RLBrain() })
+      logEvent('RL Mode: each society runs a shared neural Q-network. Exploration begins at ε=1.0.', '#a78bfa')
+    }
     this.entities = []
     this.foods = []
     this.particles = []
@@ -723,8 +1019,9 @@ const simulation = {
       oldSociety.allowWomenFighters
     )
     
+    if (rlMode) newSoc.brain = new RLBrain(oldSociety.brain) // inherit + mutate
     this.societies.push(newSoc)
-    
+
     logEvent(`REVOLUTION! A ${leader.title} led their Tribe's bloodline away from ${oldSociety.name} to form a Cult!`, newColor)
 
     // Convert the entire bloodline tribe
@@ -904,6 +1201,7 @@ const simulation = {
         if (d < e.size + f.size) {
           e.hp = Math.min(CONFIG.maxHp, e.hp + CONFIG.foodEnergy)
           e.foodEaten++
+          if (rlMode) e._rlFrameReward += 1.5 // positive reward for eating
           this.foods.splice(j, 1)
         }
       }
@@ -923,8 +1221,13 @@ const simulation = {
       }
 
       if (e.hp <= 0) {
+        if (rlMode && e._rlMoveState !== null) {
+          // Terminal experience: big negative reward for dying
+          const termState = getEntityState(e)
+          e.society.brain.rememberMove(e._rlMoveState, e._rlMoveAction, -2.0, termState)
+        }
         this.entities.splice(i, 1)
-        if (!e.diseased) this.foods.push(new Food(e.pos.x, e.pos.y)) 
+        if (!e.diseased) this.foods.push(new Food(e.pos.x, e.pos.y))
       }
     }
 
@@ -932,6 +1235,13 @@ const simulation = {
     for(let i = this.particles.length - 1; i >= 0; i--) {
       this.particles[i].update()
       if(this.particles[i].life <= 0) this.particles.splice(i, 1)
+    }
+
+    // RL training — run a batch every 30 frames for each society brain
+    if (rlMode && frames % 30 === 0) {
+      for (const soc of this.societies) {
+        if (soc.brain) soc.brain.train()
+      }
     }
   },
 
@@ -1056,6 +1366,25 @@ const simulation = {
     }
     html += `</div>`
 
+    if (rlMode) {
+      html += `<div class="rl-panel"><div class="rl-panel-title">🧠 RL Training</div>`
+      html += `<div class="rl-header"><span>Society</span><span>ε %</span><span>Avg R</span><span>Buf</span></div>`
+      for (const s of this.societies) {
+        if (popMap[s.id] > 0 && s.brain) {
+          const eps = (s.brain.epsilon * 100).toFixed(0)
+          const avgR = s.brain.avgReward
+          const buf = s.brain.moveBuffer.length
+          html += `<div class="rl-row">
+            <span class="rl-soc-name" style="color:${s.color}" title="${s.name}">${s.name}</span>
+            <span>${eps}%</span>
+            <span>${avgR}</span>
+            <span>${buf}</span>
+          </div>`
+        }
+      }
+      html += `</div>`
+    }
+
     statsContent.innerHTML = html
   }
 }
@@ -1146,6 +1475,7 @@ graphCanvasLarge.addEventListener('mouseleave', () => {
 })
 
 startBtn.addEventListener('click', () => {
+  rlMode = document.getElementById('rl-mode').checked
   targetYears = parseInt(document.getElementById('sim-years').value) || 100
   frames = 0
   currentYear = 0

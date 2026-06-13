@@ -408,3 +408,84 @@ button:active {
   border-top: 1px solid rgba(255,255,255,0.08);
   flex-wrap: wrap;
 }
+
+/* RL Mode toggle card */
+.rl-toggle-card {
+  background: rgba(167,139,250,0.07);
+  border: 1px solid rgba(167,139,250,0.2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.rl-toggle-card .checkbox-row {
+  color: #c4b5fd;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+.rl-toggle-desc {
+  font-size: 0.74rem;
+  color: #8a8d98;
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+/* RL training stats block inside stats panel */
+.rl-panel {
+  margin-top: 10px;
+  background: rgba(167,139,250,0.06);
+  border: 1px solid rgba(167,139,250,0.15);
+  border-radius: 8px;
+  padding: 8px 8px 4px;
+  font-size: 0.78rem;
+}
+
+.rl-panel-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #a78bfa;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.rl-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0 10px;
+  padding: 0 4px 4px;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 2px;
+}
+
+.rl-header span:not(:first-child),
+.rl-row span:not(:first-child) {
+  text-align: right;
+  min-width: 38px;
+}
+
+.rl-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0 10px;
+  padding: 4px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-row:last-child { border-bottom: none; }
+
+.rl-soc-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
