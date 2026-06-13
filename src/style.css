@@ -409,6 +409,27 @@ button:active {
   flex-wrap: wrap;
 }
 
+/* Stats expand button */
+.stats-expand-btn {
+  width: 100%;
+  padding: 5px 6px;
+  margin-top: 2px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.3px;
+  transition: background 0.15s, color 0.15s;
+}
+.stats-expand-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+}
+
 /* RL Mode toggle card */
 .rl-toggle-card {
   background: rgba(167,139,250,0.07);

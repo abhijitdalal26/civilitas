@@ -257,6 +257,7 @@ let graphHover = null
 let mapWidth = width
 let mapHeight = height
 let rlMode = false
+let showAllSocieties = false
 const FRAMES_PER_YEAR = 240
 
 // Seasons
@@ -1557,6 +1558,9 @@ const simulation = {
       return terrMap[b.id] - terrMap[a.id]
     })
 
+    const activeSocieties = rankedSocieties.filter(s => popMap[s.id] > 0)
+    const visibleSocieties = showAllSocieties ? activeSocieties : activeSocieties.slice(0, 3)
+
     let html = `
       <div class="stats-table">
         <div class="stats-header">
@@ -1567,19 +1571,23 @@ const simulation = {
           <span>Civil</span>
         </div>
     `
-    rankedSocieties.forEach((s, index) => {
-      if (popMap[s.id] > 0) {
-        html += `
-          <div class="stats-row">
-            <span class="soc-name" style="color: ${s.color}" title="${s.name}">#${index + 1} ${s.name}</span>
-            <span>${popMap[s.id]}</span>
-            <span>${terrMap[s.id]}</span>
-            <span>${fighterMap[s.id]}</span>
-            <span>${civilianMap[s.id]}</span>
-          </div>
-        `
-      }
+    visibleSocieties.forEach((s, index) => {
+      html += `
+        <div class="stats-row">
+          <span class="soc-name" style="color: ${s.color}" title="${s.name}">#${index + 1} ${s.name}</span>
+          <span>${popMap[s.id]}</span>
+          <span>${terrMap[s.id]}</span>
+          <span>${fighterMap[s.id]}</span>
+          <span>${civilianMap[s.id]}</span>
+        </div>
+      `
     })
+
+    if (activeSocieties.length > 3) {
+      const hiddenCount = activeSocieties.length - 3
+      html += `<button class="stats-expand-btn" id="stats-expand-btn">${showAllSocieties ? `▲ Show top 3` : `▼ ${hiddenCount} more`}</button>`
+    }
+
     html += `</div>`
 
     html += `<div class="stats-totals">`
@@ -1700,6 +1708,7 @@ graphCanvasLarge.addEventListener('mouseleave', () => {
 
 startBtn.addEventListener('click', () => {
   rlMode = document.getElementById('rl-mode').checked
+  showAllSocieties = false
   targetYears = parseInt(document.getElementById('sim-years').value) || 100
   frames = 0
   currentYear = 0
@@ -1740,9 +1749,16 @@ resetBtn.addEventListener('click', () => {
   gCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height)
   gLargeCtx.clearRect(0, 0, graphCanvasLarge.width, graphCanvasLarge.height)
   setActiveView('map')
-  
+
   setupPanel.classList.remove('hidden')
   statsPanel.classList.add('hidden')
+})
+
+statsContent.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'stats-expand-btn') {
+    showAllSocieties = !showAllSocieties
+    simulation.updateStats()
+  }
 })
 
 setActiveView('map')
